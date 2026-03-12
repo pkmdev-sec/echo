@@ -1,36 +1,11 @@
-# ECHO
-
-```
-╔════════════════════════════════════════════════════════════════════╗
-║                                                                    ║
-║         ·  ·  ·  ·  ·     ·  ·  ·  ·  ·     ·  ·  ·  ·  ·       ║
-║       ╭───╮  ╭───╮  ╭───╮  ╭───╮  ╭───╮  ╭───╮  ╭───╮           ║
-║      ╭┤   ├──┤   ├──┤   ├──┤   ├──┤   ├──┤   ├──┤   ├╮          ║
-║     ╭┤│   │  │   │  │   │  │   │  │   │  │   │  │   │├╮         ║
-║     │╰┤   ├──┤   ├──┤   ├──┤   ├──┤   ├──┤   ├──┤   ├╯│         ║
-║     │ ╰───╯  ╰───╯  ╰───╯  ╰───╯  ╰───╯  ╰───╯  ╰───╯ │         ║
-║     ╰─── ))) ─── ((( ─── ))) ─── ((( ─── ))) ─── ((( ───╯         ║
-║                                                                    ║
-║              ███████╗ ██████╗██╗  ██╗ ██████╗                      ║
-║              ██╔════╝██╔════╝██║  ██║██╔═══██╗                     ║
-║              █████╗  ██║     ███████║██║   ██║                     ║
-║              ██╔══╝  ██║     ██╔══██║██║   ██║                     ║
-║              ███████╗╚██████╗██║  ██║╚██████╔╝                     ║
-║              ╚══════╝ ╚═════╝╚═╝  ╚═╝ ╚═════╝                     ║
-║                                                                    ║
-║          ╭─────────────────────────────────────────╮               ║
-║          │    SESSION  REPLAY  AND  ANALYTICS      │               ║
-║          ╰─────────────────────────────────────────╯               ║
-║                                                                    ║
-║     ◄))  Every action recorded. Every session replayable.  ((►     ║
-║                                                                    ║
-║     Colors: Sky Blue #0ea5e9 ████████ │ Dark #0c1222 ████████      ║
-║                                                                    ║
-╚════════════════════════════════════════════════════════════════════╝
-```
+![Echo Banner](assets/banner.svg)
 
 > **Session Replay and Analytics for Claude Code**
 > Record every tool use, replay entire sessions, compute metrics, and visualize team performance.
+
+## Why Echo?
+
+In Greek mythology, Echo was a mountain nymph cursed by Hera to only repeat the last words spoken to her. She could never speak first — only reflect what others said. ECHO transforms this concept of faithful repetition into a developer tool: it captures every action in a Claude Code session and can perfectly replay them, like Echo repeating words in a mountain valley. Every tool use, every command, every result is faithfully recorded and reflected back, enabling deep analysis of how you work.
 
 ## Features
 
@@ -108,20 +83,7 @@ await mgr.saveJSON('report.json');
 
 ## Architecture
 
-```
-Claude Code Session
-        │
-        ▼
-  echo-recorder.py (PostToolUse hook)
-        │
-        ▼
-  ~/.echo/sessions/*.ndjson
-        │
-        ├──▶ ReplayEngine   → Timeline navigation
-        ├──▶ Analytics       → Metrics computation
-        ├──▶ TeamDashboard   → Cross-member aggregation
-        └──▶ ExportManager   → CSV / JSON output
-```
+![Architecture](docs/visuals/architecture-diagram.svg)
 
 ## Testing
 
