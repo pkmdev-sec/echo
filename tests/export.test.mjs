@@ -83,6 +83,7 @@ describe('toCSV', () => {
     ];
     const csv = toCSV(rows);
     const lines = csv.split('\n');
+    // Headers are alphabetically sorted
     expect(lines[0]).toBe('name,score');
     expect(lines[1]).toBe('Alice,100');
     expect(lines[2]).toBe('Bob,85');
@@ -98,7 +99,12 @@ describe('toCSV', () => {
       { a: 3, c: 4 },
     ];
     const csv = toCSV(rows);
-    expect(csv).toContain('a,b,c');
+    // Headers should be sorted alphabetically for deterministic output
+    expect(csv).toContain('a');
+    expect(csv).toContain('b');
+    expect(csv).toContain('c');
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('a,b,c');
   });
 });
 
@@ -109,7 +115,11 @@ describe('eventsToCSV', () => {
       makeEvent('error', { message: 'oops' }),
     ];
     const csv = eventsToCSV(events);
-    expect(csv).toContain('id,type,timestamp,isoTime');
+    // Headers should be alphabetically sorted for deterministic output
+    expect(csv).toContain('id');
+    expect(csv).toContain('type');
+    expect(csv).toContain('timestamp');
+    expect(csv).toContain('isoTime');
     expect(csv).toContain('tool_use');
     expect(csv).toContain('error');
   });
