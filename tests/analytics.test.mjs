@@ -2,7 +2,14 @@
  * Tests for ECHO Analytics Engine
  */
 
-import { AnalyticsEngine, SessionMetrics } from '../lib/analytics.mjs';
+import {
+  AnalyticsEngine,
+  SessionMetrics,
+  mean,
+  median,
+  percentile,
+  standardDeviation,
+} from '../lib/analytics.mjs';
 
 function makeEvent(type, data = {}, timestamp = 1000000) {
   return {
@@ -177,5 +184,147 @@ describe('AnalyticsEngine', () => {
     expect(engine.aggregateCost()).toBe(0);
     expect(engine.aggregateErrorRate()).toBe(0);
     expect(engine.aggregateToolUsage()).toEqual({});
+  });
+});
+
+describe('Statistical Functions', () => {
+  test('mean calculates average', () => {
+    expect(mean([1, 2, 3, 4, 5])).toBe(3);
+    expect(mean([10, 20, 30])).toBe(20);
+    expect(mean([100])).toBe(100);
+    expect(mean([])).toBe(0);
+  });
+
+  test('median finds middle value', () => {
+    expect(median([1, 2, 3, 4, 5])).toBe(3);
+    expect(median([1, 2, 3, 4])).toBe(2.5);
+    expect(median([5, 1, 3, 2, 4])).toBe(3);
+    expect(median([100])).toBe(100);
+    expect(median([])).toBe(0);
+  });
+
+  test('percentile calculates correct values', () => {
+    const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    expect(percentile(values, 50)).toBe(5.5);
+    expect(percentile(values, 90)).toBeCloseTo(9.1, 1);
+    expect(percentile(values, 95)).toBeCloseTo(9.55, 2);
+    expect(percentile(values, 99)).toBeCloseTo(9.91, 2);
+    expect(percentile(values, 0)).toBe(1);
+    expect(percentile(values, 100)).toBe(10);
+  });
+
+  test('standardDeviation calculates spread', () => {
+    const values = [2, 4, 4, 4, 5, 5, 7, 9];
+    const stdDev = standardDeviation(values);
+    expect(stdDev).toBeCloseTo(2.0, 1);
+    expect(standardDeviation([1, 1, 1, 1])).toBe(0);
+    expect(standardDeviation([])).toBe(0);
+  });
+});
+
+describe('SessionMetrics - Percentiles', () => {
+  test('percentileMetrics calculates tool duration percentiles', () => {
+    const session = makeSession([
+      makeEvent('tool_use', { tool: 'Read', durationMs: 100, cost: 0.01 }),
+      makeEvent('tool_use', { tool: 'Edit', durationMs: 200, cost: 0.02 }),
+      makeEvent('tool_use', { tool: 'Bash', durationMs: 150, cost: 0.015 }),
+      makeEvent('tool_use', { tool: 'Write', durationMs: 300, cost: 0.03 }),
+    ]);
+    const metrics = new SessionMetrics(session);
+    const percentiles = metrics.percentileMetrics();
+
+    expect(percentiles.durations.p50).toBeGreaterThan(0);
+    expect(percentiles.durations.p90).toBeGreaterThan(percentiles.durations.p50);
+    expect(percentiles.costs.p50).toBeGreaterThan(0);
+  });
+
+  test('percentileMetrics handles empty data', () => {
+    const session = makeSession([makeEvent('custom', {})]);
+    const metrics = new SessionMetrics(session);
+    const percentiles = metrics.percentileMetrics();
+
+    expect(percentiles.durations.p50).toBe(0);
+    expect(percentiles.costs.p50).toBe(0);
+  });
+});
+
+describe('AnalyticsEngine - Anomaly Detection', () => {
+  test('detectAnomalies finds outliers', () => {
+    const engine = new AnalyticsEngine();
+
+    // Add normal sessions
+    for (let i = 0; i < 10; i++) {
+      engine.addSession(makeSession([
+        makeEvent('tool_use', { tool: 'Read', cost: 0.01, durationMs: 100 }, 1000 + i),
+        makeEvent('tool_use', { tool: 'Edit', cost: 0.01, durationMs: 100 }, 2000 + i),
+      ]));
+    }
+
+    // Add anomalous session with high cost
+    engine.addSession(makeSession([
+      makeEvent('tool_use', { tool: 'Read', cost: 1.0, durationMs: 100 }, 10000),
+      makeEvent('tool_use', { tool: 'Edit', cost: 1.0, durationMs: 100 }, 11000),
+    ]));
+
+    const anomalies = engine.detectAnomalies(2);
+    expect(anomalies.length).toBeGreaterThan(0);
+    expect(anomalies[0].anomalies.some(a => a.type === 'cost')).toBeTruthy();
+  });
+
+  test('detectAnomalies returns empty for uniform data', () => {
+    const engine = new AnalyticsEngine();
+
+    for (let i = 0; i < 5; i++) {
+      engine.addSession(makeSession([
+        makeEvent('tool_use', { tool: 'Read', cost: 0.01, durationMs: 100 }),
+      ]));
+    }
+
+    const anomalies = engine.detectAnomalies(3);
+    expect(anomalies).toHaveLength(0);
+  });
+});
+
+describe('AnalyticsEngine - Trend Analysis', () => {
+  test('trendAnalysis detects patterns over time', () => {
+    const engine = new AnalyticsEngine();
+
+    // Add sessions with increasing error rates
+    for (let i = 0; i < 15; i++) {
+      const events = [makeEvent('tool_use', { tool: 'Read' }, 1000 + i)];
+      // Add more errors as we progress
+      if (i > 10) {
+        events.push(makeEvent('error', { message: 'fail' }, 2000 + i));
+      }
+      engine.addSession(makeSession(events));
+    }
+
+    const trends = engine.trendAnalysis(5);
+    expect(trends.trend).toBeDefined();
+    expect(trends.windows.length).toBeGreaterThan(0);
+    expect(trends.summary.firstWindow).toBeDefined();
+    expect(trends.summary.lastWindow).toBeDefined();
+  });
+
+  test('trendAnalysis returns insufficient_data for small datasets', () => {
+    const engine = new AnalyticsEngine();
+    engine.addSession(makeSession([makeEvent('tool_use', { tool: 'Read' })]));
+
+    const trends = engine.trendAnalysis(10);
+    expect(trends.trend).toBe('insufficient_data');
+  });
+});
+
+describe('SessionMetrics - Edge Cases', () => {
+  test('handles events with missing timestamps gracefully', () => {
+    const session = {
+      metadata: { sessionId: 'test' },
+      events: [
+        { type: 'tool_use', timestamp: 1000, data: {} },
+        { type: 'error', timestamp: 2000, data: {} },
+      ],
+    };
+    const metrics = new SessionMetrics(session);
+    expect(metrics.durationMs).toBe(1000);
   });
 });

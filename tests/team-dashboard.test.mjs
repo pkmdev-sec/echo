@@ -14,9 +14,13 @@ function makeEvent(type, data = {}, timestamp = 1000000) {
   };
 }
 
-function makeSession(userId, events) {
+function makeSession(userId, events, startedAt = null) {
   return {
-    metadata: { sessionId: `s-${Math.random().toString(36).slice(2, 8)}`, userId },
+    metadata: {
+      sessionId: `s-${Math.random().toString(36).slice(2, 8)}`,
+      userId,
+      startedAt: startedAt || Date.now(),
+    },
     events,
   };
 }
@@ -142,5 +146,165 @@ describe('TeamDashboard', () => {
     expect(summary.members).toHaveLength(2);
     expect(summary.totalCost).toBeGreaterThan(0);
     expect(summary.teamToolUsage).toBeDefined();
+  });
+});
+
+describe('MemberProfile - Time-based queries', () => {
+  test('commonErrors tracks error messages', () => {
+    const member = new MemberProfile('dave');
+    member.addSession(makeSession('dave', [
+      makeEvent('error', { message: 'File not found' }),
+      makeEvent('error', { message: 'File not found' }),
+      makeEvent('error', { message: 'Permission denied' }),
+    ]));
+
+    const errors = member.commonErrors(2);
+    expect(errors).toHaveLength(2);
+    expect(errors[0].message).toBe('File not found');
+    expect(errors[0].count).toBe(2);
+  });
+
+  test('getSessionsInTimeRange filters correctly', () => {
+    const member = new MemberProfile('eve');
+    const now = Date.now();
+
+    member.addSession(makeSession('eve', [makeEvent('a')], now - 3000));
+    member.addSession(makeSession('eve', [makeEvent('b')], now - 2000));
+    member.addSession(makeSession('eve', [makeEvent('c')], now - 1000));
+
+    const recent = member.getSessionsInTimeRange(now - 2500, now);
+    expect(recent.length).toBe(2);
+  });
+
+  test('metricsForTimeRange computes period metrics', () => {
+    const member = new MemberProfile('frank');
+    const now = Date.now();
+
+    member.addSession(makeSession('frank', [
+      makeEvent('tool_use', { tool: 'Read', cost: 0.01 }, 1000),
+    ], now - 3000));
+
+    member.addSession(makeSession('frank', [
+      makeEvent('tool_use', { tool: 'Edit', cost: 0.02 }, 1000),
+      makeEvent('error', { message: 'fail' }, 2000),
+    ], now - 1000));
+
+    const metrics = member.metricsForTimeRange(now - 2000, now);
+    expect(metrics.sessionCount).toBe(1);
+    expect(metrics.totalCost).toBeCloseTo(0.02);
+    expect(metrics.errorRate).toBe(50);
+  });
+
+  test('detailedBreakdown provides comprehensive stats', () => {
+    const member = new MemberProfile('grace');
+    member.addSession(makeSession('grace', [
+      makeEvent('tool_use', { tool: 'Read', cost: 0.01 }, 1000),
+      makeEvent('tool_use', { tool: 'Edit', cost: 0.02 }, 2000),
+      makeEvent('error', { message: 'fail' }, 3000),
+    ]));
+
+    const breakdown = member.detailedBreakdown();
+    expect(breakdown.userId).toBe('grace');
+    expect(breakdown.sessionCount).toBe(1);
+    expect(breakdown.totalErrors).toBe(1);
+    expect(breakdown.avgCostPerSession).toBeCloseTo(0.03);
+    expect(breakdown.toolCount).toBeGreaterThan(0);
+  });
+});
+
+describe('TeamDashboard - Advanced Features', () => {
+  test('topTools returns most used tools', () => {
+    const dashboard = new TeamDashboard('tools-team');
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Read' }),
+      makeEvent('tool_use', { tool: 'Read' }),
+      makeEvent('tool_use', { tool: 'Edit' }),
+    ]));
+    dashboard.addSession(makeSession('bob', [
+      makeEvent('tool_use', { tool: 'Read' }),
+    ]));
+
+    const top = dashboard.topTools(2);
+    expect(top).toHaveLength(2);
+    expect(top[0].tool).toBe('Read');
+    expect(top[0].count).toBe(3);
+  });
+
+  test('commonErrors aggregates team errors', () => {
+    const dashboard = new TeamDashboard('errors-team');
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('error', { message: 'Network timeout' }),
+      makeEvent('error', { message: 'Network timeout' }),
+    ]));
+    dashboard.addSession(makeSession('bob', [
+      makeEvent('error', { message: 'Network timeout' }),
+      makeEvent('error', { message: 'Invalid input' }),
+    ]));
+
+    const errors = dashboard.commonErrors(2);
+    expect(errors).toHaveLength(2);
+    expect(errors[0].message).toBe('Network timeout');
+    expect(errors[0].count).toBe(3);
+  });
+
+  test('teamHealthScore calculates health metric', () => {
+    const dashboard = new TeamDashboard('health-team');
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Read' }),
+      makeEvent('tool_use', { tool: 'Edit' }),
+    ]));
+
+    const health = dashboard.teamHealthScore();
+    expect(health).toBeGreaterThan(0);
+    expect(health).toBeLessThanOrEqual(100);
+  });
+
+  test('compareTimePeriods analyzes trends', () => {
+    const dashboard = new TeamDashboard('trend-team');
+    const now = Date.now();
+
+    // Last week - good performance
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Read', cost: 0.01 }, 1000),
+    ], now - 7 * 24 * 60 * 60 * 1000));
+
+    // This week - degraded performance
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Read', cost: 0.05 }, 1000),
+      makeEvent('error', { message: 'fail' }, 2000),
+    ], now - 1000));
+
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const comparison = dashboard.compareTimePeriods(
+      weekAgo - 1000,
+      weekAgo + 1000,
+      now - 2000,
+      now
+    );
+
+    expect(comparison.period1).toBeDefined();
+    expect(comparison.period2).toBeDefined();
+    expect(comparison.changes).toBeDefined();
+    expect(comparison.improvement).toBeDefined();
+  });
+
+  test('perDeveloperBreakdown returns sorted details', () => {
+    const dashboard = new TeamDashboard('dev-team');
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Read' }),
+      makeEvent('tool_use', { tool: 'Edit' }),
+    ]));
+    dashboard.addSession(makeSession('alice', [
+      makeEvent('tool_use', { tool: 'Bash' }),
+    ]));
+    dashboard.addSession(makeSession('bob', [
+      makeEvent('tool_use', { tool: 'Read' }),
+    ]));
+
+    const breakdown = dashboard.perDeveloperBreakdown();
+    expect(breakdown).toHaveLength(2);
+    // Should be sorted by session count
+    expect(breakdown[0].userId).toBe('alice');
+    expect(breakdown[0].sessionCount).toBe(2);
   });
 });

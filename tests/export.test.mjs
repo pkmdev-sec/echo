@@ -6,6 +6,8 @@ import { readFile } from 'node:fs/promises';
 import {
   toJSON,
   toCSV,
+  toMarkdown,
+  toHTML,
   flattenEvent,
   escapeCSVField,
   eventsToCSV,
@@ -13,6 +15,7 @@ import {
   teamSummaryToCSV,
   exportToFile,
   ExportManager,
+  generatePDFPlaceholder,
 } from '../lib/export.mjs';
 
 function makeEvent(type, data = {}, timestamp = 1000000) {
@@ -213,5 +216,193 @@ describe('ExportManager', () => {
     await manager.saveCSV(path);
     const content = await readFile(path, 'utf-8');
     expect(content).toContain('tool_use');
+  });
+});
+
+describe('toCSV - Field Selection', () => {
+  test('supports field selection', () => {
+    const rows = [
+      { name: 'Alice', age: 30, city: 'NYC', score: 100 },
+      { name: 'Bob', age: 25, city: 'LA', score: 85 },
+    ];
+    const csv = toCSV(rows, { fields: ['name', 'score'] });
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('name,score');
+    expect(lines[1]).toBe('Alice,100');
+    expect(lines).toHaveLength(3);
+  });
+
+  test('CSV headers are sorted deterministically', () => {
+    const rows = [
+      { z: 1, a: 2, m: 3 },
+    ];
+    const csv = toCSV(rows);
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('a,m,z');
+  });
+});
+
+describe('toMarkdown', () => {
+  test('generates markdown report', () => {
+    const data = {
+      metadata: {
+        sessionId: 'md-test',
+        userId: 'alice',
+        startedAtISO: '2024-01-01T00:00:00Z',
+        endedAtISO: '2024-01-01T01:00:00Z',
+        durationMs: 3600000,
+      },
+      events: [
+        makeEvent('tool_use', { tool: 'Read' }),
+        makeEvent('error', { message: 'fail' }),
+      ],
+    };
+
+    const md = toMarkdown(data, 'Test Report');
+    expect(md).toContain('# Test Report');
+    expect(md).toContain('Session ID');
+    expect(md).toContain('md-test');
+    expect(md).toContain('alice');
+    expect(md).toContain('Events');
+    expect(md).toContain('|');
+  });
+
+  test('handles missing metadata', () => {
+    const data = { events: [] };
+    const md = toMarkdown(data);
+    expect(md).toContain('# Echo Report');
+    expect(md).toContain('Generated:');
+  });
+});
+
+describe('toHTML', () => {
+  test('generates valid HTML report', () => {
+    const data = {
+      metadata: {
+        sessionId: 'html-test',
+        userId: 'bob',
+        startedAtISO: '2024-01-01T00:00:00Z',
+        totalEvents: 3,
+      },
+      events: [
+        makeEvent('tool_use', { tool: 'Read' }),
+        makeEvent('tool_use', { tool: 'Edit' }),
+        makeEvent('error', { message: 'oops' }),
+      ],
+    };
+
+    const html = toHTML(data, 'HTML Report');
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('<html>');
+    expect(html).toContain('<title>HTML Report</title>');
+    expect(html).toContain('html-test');
+    expect(html).toContain('bob');
+    expect(html).toContain('Event Type Distribution');
+    expect(html).toContain('Event Timeline');
+    expect(html).toContain('</html>');
+  });
+
+  test('includes CSS styles', () => {
+    const data = {
+      metadata: { sessionId: 'test' },
+      events: [makeEvent('tool_use', { tool: 'Read' })],
+    };
+    const html = toHTML(data);
+    expect(html).toContain('<style>');
+    expect(html).toContain('font-family');
+  });
+
+  test('includes event distribution chart', () => {
+    const data = {
+      metadata: { sessionId: 'chart-test' },
+      events: [
+        makeEvent('tool_use', { tool: 'Read' }),
+        makeEvent('tool_use', { tool: 'Edit' }),
+        makeEvent('error', { message: 'fail' }),
+      ],
+    };
+    const html = toHTML(data);
+    expect(html).toContain('tool_use');
+    expect(html).toContain('error');
+    expect(html).toContain('class="bar"');
+  });
+
+  test('truncates long event lists', () => {
+    const events = [];
+    for (let i = 0; i < 150; i++) {
+      events.push(makeEvent('test', { index: i }));
+    }
+    const data = { metadata: { sessionId: 'long' }, events };
+    const html = toHTML(data);
+    expect(html).toContain('more events');
+  });
+});
+
+describe('generatePDFPlaceholder', () => {
+  test('returns PDF conversion instructions', () => {
+    const placeholder = generatePDFPlaceholder('html content', 'test-session');
+    expect(placeholder.instructions).toContain('PDF');
+    expect(placeholder.htmlPath).toContain('test-session');
+    expect(placeholder.note).toBeDefined();
+  });
+});
+
+describe('ExportManager - New Features', () => {
+  const sessionData = {
+    metadata: { sessionId: 'manager-test', userId: 'charlie' },
+    events: [
+      makeEvent('tool_use', { tool: 'Read', cost: 0.01 }),
+      makeEvent('error', { message: 'fail' }),
+    ],
+  };
+
+  test('toMarkdown exports markdown', () => {
+    const manager = new ExportManager(sessionData);
+    const md = manager.toMarkdown('Custom Title');
+    expect(md).toContain('# Custom Title');
+    expect(md).toContain('manager-test');
+  });
+
+  test('toHTML exports HTML', () => {
+    const manager = new ExportManager(sessionData);
+    const html = manager.toHTML('Custom HTML');
+    expect(html).toContain('<title>Custom HTML</title>');
+    expect(html).toContain('charlie');
+  });
+
+  test('saveMarkdown writes to disk', async () => {
+    const manager = new ExportManager(sessionData);
+    const path = `/tmp/echo-md-${Date.now()}.md`;
+    await manager.saveMarkdown(path, 'MD Test');
+    const content = await readFile(path, 'utf-8');
+    expect(content).toContain('# MD Test');
+  });
+
+  test('saveHTML writes to disk', async () => {
+    const manager = new ExportManager(sessionData);
+    const path = `/tmp/echo-html-${Date.now()}.html`;
+    await manager.saveHTML(path, 'HTML Test');
+    const content = await readFile(path, 'utf-8');
+    expect(content).toContain('<!DOCTYPE html>');
+    expect(content).toContain('HTML Test');
+  });
+
+  test('savePDF generates HTML and returns placeholder', async () => {
+    const manager = new ExportManager(sessionData);
+    const path = `/tmp/echo-pdf-${Date.now()}.html`;
+    const result = await manager.savePDF(path);
+    expect(result.instructions).toContain('PDF');
+
+    // Verify HTML was written
+    const content = await readFile(path, 'utf-8');
+    expect(content).toContain('<!DOCTYPE html>');
+  });
+
+  test('eventsToCSV with field selection', () => {
+    const manager = new ExportManager(sessionData);
+    const csv = manager.eventsToCSV({ fields: ['type', 'timestamp'] });
+    const lines = csv.split('\n');
+    expect(lines[0]).toContain('type');
+    expect(lines[0]).toContain('timestamp');
   });
 });

@@ -120,4 +120,92 @@ describe('SessionRecorder', () => {
     expect(loaded.eventCount).toBe(2);
     expect(loaded.active).toBe(false);
   });
+
+  test('pause and resume recording', () => {
+    recorder.record('event1');
+    recorder.pause();
+    expect(recorder.paused).toBe(true);
+
+    // Events recorded while paused should be filtered
+    const evt = recorder.record('event2');
+    expect(evt).toBeNull();
+
+    recorder.resume();
+    expect(recorder.paused).toBe(false);
+    const evt3 = recorder.record('event3');
+    expect(evt3).not.toBeNull();
+  });
+
+  test('selective recording with event type filter', () => {
+    const rec = new SessionRecorder({
+      userId: 'filter-test',
+      eventTypeFilter: ['tool_use', 'error']
+    });
+
+    rec.record('tool_use', { tool: 'Read' });
+    rec.record('custom_event', { data: 'test' });
+    rec.record('error', { message: 'fail' });
+
+    // Only tool_use and error should be recorded
+    expect(rec.eventCount).toBe(2);
+    expect(rec.events[0].type).toBe('tool_use');
+    expect(rec.events[1].type).toBe('error');
+  });
+
+  test('exclude patterns filter data', () => {
+    const rec = new SessionRecorder({
+      userId: 'exclude-test',
+      excludePatterns: [/password/, /secret/]
+    });
+
+    rec.record('auth', { username: 'alice', password: 'secret123', apiKey: 'secret-key' });
+
+    expect(rec.events[0].data.username).toBe('alice');
+    expect(rec.events[0].data.password).toBe('[FILTERED]');
+    expect(rec.events[0].data.apiKey).toBe('[FILTERED]');
+  });
+
+  test('session size tracking', () => {
+    const rec = new SessionRecorder({ userId: 'size-test' });
+    rec.record('event1', { data: 'x'.repeat(1000) });
+    rec.record('event2', { data: 'y'.repeat(1000) });
+
+    expect(rec.sessionSize).toBeGreaterThan(0);
+  });
+
+  test('compression for large sessions', async () => {
+    const tmpDir = `/tmp/echo-compress-${Date.now()}`;
+    const rec = new SessionRecorder({
+      userId: 'compress-test',
+      storeDir: tmpDir,
+      compressionThreshold: 100, // Low threshold for testing
+      enableCompression: true
+    });
+
+    // Add enough data to trigger compression
+    for (let i = 0; i < 20; i++) {
+      rec.record('event', { data: 'x'.repeat(100) });
+    }
+    rec.end();
+
+    const path = await rec.save();
+    expect(path).toContain('.json.gz');
+
+    // Should be able to load compressed file
+    const loaded = await SessionRecorder.load(rec.sessionId, tmpDir);
+    expect(loaded.eventCount).toBe(20);
+  });
+
+  test('load preserves original timestamps', async () => {
+    const tmpDir = `/tmp/echo-timestamp-${Date.now()}`;
+    const rec = new SessionRecorder({ userId: 'timestamp-test', storeDir: tmpDir });
+
+    const originalStartedAt = rec.metadata.startedAt;
+    rec.record('test');
+    rec.end();
+    await rec.save();
+
+    const loaded = await SessionRecorder.load(rec.sessionId, tmpDir);
+    expect(loaded.metadata.startedAt).toBe(originalStartedAt);
+  });
 });
