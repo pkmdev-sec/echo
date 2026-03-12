@@ -1,0 +1,23 @@
+{
+  "name": "@pkmdev/echo",
+  "version": "1.0.0",
+  "description": "ECHO — Session Replay and Analytics for Claude Code",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "bin": {
+    "echo": "./bin/echo-cli.mjs"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.json",
+    "test:verbose": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.json --verbose",
+    "lint": "echo 'No linter configured'",
+    "start": "node bin/echo-cli.mjs"
+  },
+  "keywords": ["claude-code", "session-replay", "analytics", "hooks"],
+  "author": "pkmdev-sec",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@jest/globals": "^29.7.0"
+  }
+}
